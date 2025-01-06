@@ -41,16 +41,23 @@ patterns = {
     "AGRAVADA": r'AGRAVADA:\s*(.+)',
     "EMBARGANTE": r'EMBARGANTE:\s*(.+)',
     "EMBARGADO": r'EMBARGADO:\s*(.+)',
-
+    "R$": r'R\$\s*([\d\.,]+)',
 }
 
 # List of PDF files to process
 pdf_files = [
-    "PDF_20250000000068.pdf",
-    "PDF_20250000000148.pdf",
-    "PDF_20250000000157.pdf",
-    "PDF_20250000000173.pdf",
-    "PDF_20250000000204.pdf",
+    "processo_18746960.pdf",
+    "processo_18746961.pdf",
+    "processo_18746962.pdf",
+    "processo_18746963.pdf",
+    "processo_18746965.pdf",
+    "processo_18746966.pdf",
+    "processo_18746967.pdf",
+    "processo_18746968.pdf",
+    "processo_18746969.pdf",
+    "processo_18746970.pdf",
+    "processo_18746961.pdf",
+    "processo_18746962.pdf",
 ]
 
 
@@ -70,6 +77,5 @@ for result in all_results:
         if key != "File":
             if value:
                 print(f"  {key}: {value}")
-            else:
-                print(f"  {key}: {None}")
+           
     print()
