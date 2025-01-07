@@ -3,17 +3,7 @@ import PyPDF2
 import re
 
 def extract_patterns_from_pdf(file_path, page_index, patterns):
-    """
-    Extracts specific patterns from a PDF file.
-
-    Args:
-        file_path (str): Path to the PDF file.
-        page_index (int): Index of the page to extract text from.
-        patterns (dict): A dictionary of patterns to search for.
-
-    Returns:
-        dict: A dictionary with pattern names as keys and extracted values as values.
-    """
+    """  """
     with open(file_path, "rb") as file:
         reader = PyPDF2.PdfReader(file)
         if page_index >= len(reader.pages):
