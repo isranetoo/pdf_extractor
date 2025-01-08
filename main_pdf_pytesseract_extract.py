@@ -3,6 +3,7 @@ import PyPDF2
 import re
 import pytesseract
 from pdf2image import convert_from_path
+from PIL import Image, ImageFilter
 
 def extract_patterns_from_pdf(file_path, page_index, patterns):
     """  """
@@ -47,6 +48,21 @@ def save_pdf_cuts_as_images(pdf_path, page_index, cuts, output_folder):
     except Exception as e:
         print(f"Error processing {pdf_path}: {str(e)}")
 
+def extract_text_from_images(img_path, lista_cortes_imagem):
+    resultados = {}
+    for i, coordenadas in enumerate(lista_cortes_imagem):
+        image = Image.open(img_path)
+        cropped_imagem = image.crop(coordenadas)
+        sharpened_imagem = cropped_imagem.filter(ImageFilter.SHARPEN)
+
+        ocr_config = '--psm 11 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890()-:,.\/_ '
+        result = pytesseract.image_to_string(sharpened_imagem, config=ocr_config)
+        result = result.strip()
+
+        resultados[f"processo_{i}"] = result
+
+    return resultados
+
 patterns = {
     #POLO ATIVO
     "APELANTE": r'APELANTE:\s*(.+)',
@@ -54,7 +70,6 @@ patterns = {
     #POLO PASSIVO
     "APELADO": r'APELADO:\s*(.+)',
 
-    #POLO ATIVO
     "AGRAVANTE": r'AGRAVANTE:\s*(.+)',
     #POLO PASSIVO
     "AGRAVADO": r'AGRAVADO:\s*(.+)',
@@ -79,9 +94,17 @@ pdf_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.
 page_index = 1 
 cuts = [
     (0, 250, 1550, 724),
-    (0, 250, 1650, 924),  # Larger than standard PDF page size in points (1/72 inch): left, top, right, bottom
-    (0, 250, 1850, 724), 
+    (0, 250, 1650, 864),
+    (0, 250, 1650, 690),  #left, top, right, bottom
+    (0, 250, 1650, 724), 
 ]
+
+if os.name == "nt":
+    tesseract_path = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    
+    if not os.path.exists(tesseract_path):
+        raise FileNotFoundError(f"Tesseract executable not found at {tesseract_path}")
 
 all_results = []
 for pdf_file in pdf_files:
@@ -89,6 +112,12 @@ for pdf_file in pdf_files:
     results["File"] = pdf_file
     all_results.append(results)
     save_pdf_cuts_as_images(pdf_file, page_index, cuts, output_folder)
+    
+    for i in range(len(cuts)):
+        img_path = os.path.join(output_folder, f"{os.path.basename(pdf_file).replace('.pdf', '')}_cut_{i}.png")
+        if os.path.exists(img_path):
+            image_results = extract_text_from_images(img_path, cuts)
+            results.update(image_results)
 
 for result in all_results:
     print(f"Results for {result['File']}:")
@@ -97,9 +126,6 @@ for result in all_results:
             if value:
                 print(f"  {key}: {value}")
             else:
-                print(f"  {key}: None")    
-    print()
-
-
-if os.name == "nt":
-    pytesseract.pytesseract.tesseract_cmd = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+                print(f"  {key}: None")
+    print("-" * 40)
+    
