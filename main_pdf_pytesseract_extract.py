@@ -37,11 +37,10 @@ def format_judicial_number(text):
     return text
 
 def format_process_number(text):
-    """Format process numbers like: Nº 1026047-48.2024.8.26.0100"""
+    """Enhanced process number formatting"""
     text = ' '.join(text.split())
-    
     patterns = [
-        r'(?:Nº|N°|No|Nº)\s*(\d{6,7})-?(\d{2})\.?(\d{4})\.?(\d)\.?(\d{2})\.?(\d{4})',
+        r'(?:Nº|N°|No|Número|PROCESSO:?|Proc\.?:?)\s*(\d{6,7})-?(\d{2})\.?(\d{4})\.?(\d)\.?(\d{2})\.?(\d{4})',
         r'(\d{6,7})-?(\d{2})\.?(\d{4})\.?(\d)\.?(\d{2})\.?(\d{4})'
     ]
     
@@ -49,11 +48,8 @@ def format_process_number(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             groups = match.groups()
-            if len(groups) == 6:
-                formatted = f"{groups[0]}-{groups[1]}.{groups[2]}.{groups[3]}.{groups[4]}.{groups[5]}"
-                if not re.search(r'(?:Nº|N°|No|Nº)', text, re.IGNORECASE):
-                    return f"Nº {formatted}"
-                return f"Nº {formatted}"
+            formatted = f"{groups[0]}-{groups[1]}.{groups[2]}.{groups[3]}.{groups[4]}.{groups[5]}"
+            return f"Nº {formatted}"
     return text
 
 def format_currency(text):
@@ -120,16 +116,67 @@ def extract_text_from_images(img_path, lista_cortes_imagem):
 
     return resultados
 
+def format_legal_text(text):
+    """Enhanced legal text formatting with better patterns"""
+    legal_patterns = {
+        'APELANTE': r'APELANTE:?\s*(.+?)(?=(?:\s*(?:APELADO|AGRAVANTE|AGRAVADO|EMBARGANTE|EMBARGADO)|$))',
+        'APELANTES': r'APELANTES:?\s*(.+?)(?=(?:\s*(?:APELADO|AGRAVANTE|AGRAVADO|EMBARGANTE|EMBARGADO)|$))',
+        'APELADO': r'APELADO:?\s*(.+?)(?=(?:\s*(?:APELANTE|AGRAVANTE|AGRAVADO|EMBARGANTE|EMBARGADO)|$))',
+        'AGRAVANTE': r'AGRAVANTE:?\s*(.+?)(?=(?:\s*(?:APELANTE|APELADO|AGRAVADO|EMBARGANTE|EMBARGADO)|$))',
+        'AGRAVADO': r'AGRAVADO:?\s*(.+?)(?=(?:\s*(?:APELANTE|APELADO|AGRAVANTE|EMBARGANTE|EMBARGADO)|$))',
+        'AGRAVADA': r'AGRAVADA:?\s*(.+?)(?=(?:\s*(?:APELANTE|APELADO|AGRAVANTE|EMBARGANTE|EMBARGADO)|$))',
+        'EMBARGANTE': r'EMBARGANTE:?\s*(.+?)(?=(?:\s*(?:APELANTE|APELADO|AGRAVANTE|AGRAVADO|EMBARGADO)|$))',
+        'EMBARGADO': r'EMBARGADO:?\s*(.+?)(?=(?:\s*(?:APELANTE|APELADO|AGRAVANTE|AGRAVADO|EMBARGANTE)|$))'
+    }
+    
+    results = {}
+    text = ' '.join(text.split())  
+    
+    for term, pattern in legal_patterns.items():
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            content = match.group(1).strip()
+            content = re.sub(r'\s+', ' ', content)  
+            content = re.sub(r'[^\w\s.,()-:/$°ºª§]', '', content)  
+            content = content.strip()
+            if content:  
+                results[term] = content.upper()  
+    
+    return results
+
+def print_formatted_results(results, pdf_name):
+    """Print results in a standardized format"""
+    print(f"\nProcessando: {pdf_name}")
+    print("=" * 60)
+    
+    priority_terms = ['APELANTE', 'APELANTES', 'APELADO', 'AGRAVANTE', 
+                     'AGRAVADO', 'AGRAVADA', 'EMBARGANTE', 'EMBARGADO']
+    
+    for term in priority_terms:
+        if term in results and results[term]:
+            print(f"\n{term}:")
+            print("-" * 30)
+            print(f"{results[term]}")
+    
+    for key, value in results.items():
+        if key.startswith('processo_') and value:
+            print(f"\nPROCESSO:")
+            print("-" * 30)
+            print(f"{value}")
+    
+    print("\n" + "=" * 60)
+
 folder_path = "./pdfs_folder"  
 output_folder = "./output_images"
 
 pdf_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(".pdf")]
 
-page_index = 1 
+page_index = 1
 cuts = [
-    (0, 250, 1550, 724),
+    (0, 0, 1650, 2250),     # A4 full page in pixels (300 DPI)
+    (0, 250, 1550, 724),    #left, top, right, bottom
     (0, 250, 1650, 864),
-    (0, 250, 1650, 630),  #left, top, right, bottom
+    (0, 250, 1650, 630),  
     (0, 250, 1650, 724),
 ]
 
@@ -143,15 +190,11 @@ if os.name == "nt":
 for pdf_file in pdf_files:
     save_pdf_cuts_as_images(pdf_file, page_index, cuts, output_folder)
     
+    all_results = {}
     for i in range(len(cuts)):
         img_path = os.path.join(output_folder, f"{os.path.basename(pdf_file).replace('.pdf', '')}_cut_{i}.png")
         if os.path.exists(img_path):
-            text_results = extract_text_from_images(img_path, cuts)
-            print(f"\nResults for {img_path}:")
-            print("=" * 50)
-            for key, value in text_results.items():
-                if value:
-                    print(f"\n{key}:")
-                    print("-" * 30)
-                    print(value)
-            print("=" * 50)
+            results = extract_text_from_images(img_path, cuts)
+            all_results.update(results)
+    
+    print_formatted_results(all_results, os.path.basename(pdf_file))
