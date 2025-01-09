@@ -1,29 +1,8 @@
 import os
-import PyPDF2
 import re
-import pytesseract
 from pdf2image import convert_from_path
 from PIL import Image, ImageFilter
-
-def extract_patterns_from_pdf(file_path, page_index, patterns):
-    """  """
-    with open(file_path, "rb") as file:
-        reader = PyPDF2.PdfReader(file)
-        if page_index >= len(reader.pages):
-            print(f"Page {page_index} not found in {file_path}. Skipping...")
-            return {key: None for key in patterns}
-        
-        page = reader.pages[page_index]  
-        text = page.extract_text()
-        
-        results = {}
-        for pattern_name, pattern in patterns.items():
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                results[pattern_name] = match.group(1).strip()
-            else:
-                results[pattern_name] = None
-        return results   
+import pytesseract
 
 def save_pdf_cuts_as_images(pdf_path, page_index, cuts, output_folder):
     try:
@@ -48,57 +27,98 @@ def save_pdf_cuts_as_images(pdf_path, page_index, cuts, output_folder):
     except Exception as e:
         print(f"Error processing {pdf_path}: {str(e)}")
 
+def format_judicial_number(text):
+    """Format judicial numbers like: 1234567-12.2023.8.26.0000"""
+    text = re.sub(r'\s+', '', text)
+    pattern = r'(\d{7})-?(\d{2}).?(\d{4}).?(\d).?(\d{2}).?(\d{4})'
+    match = re.search(pattern, text)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}.{match.group(3)}.{match.group(4)}.{match.group(5)}.{match.group(6)}"
+    return text
+
+def format_process_number(text):
+    """Format process numbers like: Nº 1026047-48.2024.8.26.0100"""
+    text = ' '.join(text.split())
+    
+    patterns = [
+        r'(?:Nº|N°|No|Nº)\s*(\d{6,7})-?(\d{2})\.?(\d{4})\.?(\d)\.?(\d{2})\.?(\d{4})',
+        r'(\d{6,7})-?(\d{2})\.?(\d{4})\.?(\d)\.?(\d{2})\.?(\d{4})'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            groups = match.groups()
+            if len(groups) == 6:
+                formatted = f"{groups[0]}-{groups[1]}.{groups[2]}.{groups[3]}.{groups[4]}.{groups[5]}"
+                if not re.search(r'(?:Nº|N°|No|Nº)', text, re.IGNORECASE):
+                    return f"Nº {formatted}"
+                return f"Nº {formatted}"
+    return text
+
+def format_currency(text):
+    """Format currency values like: R$ 1.234,56"""
+    text = text.strip()
+    if 'R$' in text or re.search(r'\d+[.,]\d{2}', text):
+        number = re.findall(r'[\d.,]+', text)
+        if number:
+            try:
+                value = number[0].replace('.', '').replace(',', '.')
+                amount = float(value)
+                return f"R$ {amount:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
+            except ValueError:
+                return text
+    return text
+
+def normalize_text(text):
+    """Normalize special characters and maintain original format"""
+    replacements = {
+        'º': 'º',
+        '°': 'º',
+        '¢': 'º',
+        '®': 'º',
+        'ª': 'ª',
+        '§': '§',
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
 def extract_text_from_images(img_path, lista_cortes_imagem):
     resultados = {}
     for i, coordenadas in enumerate(lista_cortes_imagem):
         image = Image.open(img_path)
         cropped_imagem = image.crop(coordenadas)
         
-        
-        enhanced_image = cropped_imagem.convert('L')  
+        enhanced_image = cropped_imagem.convert('L')
         enhanced_image = enhanced_image.filter(ImageFilter.SHARPEN)
-        enhanced_image = enhanced_image.point(lambda x: 0 if x < 128 else 255, '1')  
+        enhanced_image = enhanced_image.filter(ImageFilter.EDGE_ENHANCE)
+        enhanced_image = enhanced_image.point(lambda x: 0 if x < 128 else 255, '1')
 
+        custom_config = r'--oem 3 --psm 6 -c preserve_interword_spaces=1 tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,()-:/$°ºªN§ '
         
-        custom_config = r'--oem 3 --psm 6 -c preserve_interword_spaces=1'
-        result = pytesseract.image_to_string(
+        text_result = pytesseract.image_to_string(
             enhanced_image,
             config=custom_config,
-            lang='por'  
-        )
+            lang='por'
+        ).strip()
+        
 
+        text_result = normalize_text(text_result)
+        
+        if re.search(r'(?:Nº|N°|No|Nº)?\s*\d{6,7}-?\d{2}', text_result, re.IGNORECASE):
+            text_result = format_process_number(text_result)
+        elif 'R$' in text_result or re.search(r'\d+[.,]\d{2}', text_result):
+            text_result = format_currency(text_result)
         
         formatted_result = '\n'.join(
-            line.strip() for line in result.splitlines() 
+            line.strip() for line in text_result.splitlines()
             if line.strip()
         )
 
         resultados[f"processo_{i}"] = formatted_result
 
     return resultados
-
-patterns = {
-    #POLO ATIVO
-    "APELANTE": r'APELANTE:\s*(.+)',
-    "APELANTES": r'APELANTES:\s*(.+)',
-    #POLO PASSIVO
-    "APELADO": r'APELADO:\s*(.+)',
-
-    "AGRAVANTE": r'AGRAVANTE:\s*(.+)',
-    #POLO PASSIVO
-    "AGRAVADO": r'AGRAVADO:\s*(.+)',
-    "AGRAVADA": r'AGRAVADA:\s*(.+)',
-
-    #POLO ATIVO
-    "EMBARGANTE": r'EMBARGANTE:\s*(.+)',
-    #POLO PASSIVO
-    "EMBARGADO": r'EMBARGADO:\s*(.+)',
-    
-    "R$": r'R\$\s*([\d\.,]+)',
-    "Apelação Cível nº": r'Apelação Cível nº\s+(\d+)',
-    "Apelação Criminal nº": r'Apelação Criminal nº\s+(\d+)',
-}
-
 
 folder_path = "./pdfs_folder"  
 output_folder = "./output_images"
@@ -109,8 +129,8 @@ page_index = 1
 cuts = [
     (0, 250, 1550, 724),
     (0, 250, 1650, 864),
-    (0, 250, 1650, 690),  #left, top, right, bottom
-    (0, 250, 1650, 724), 
+    (0, 250, 1650, 630),  #left, top, right, bottom
+    (0, 250, 1650, 724),
 ]
 
 if os.name == "nt":
@@ -120,28 +140,18 @@ if os.name == "nt":
     if not os.path.exists(tesseract_path):
         raise FileNotFoundError(f"Tesseract executable not found at {tesseract_path}")
 
-all_results = []
 for pdf_file in pdf_files:
-    results = extract_patterns_from_pdf(pdf_file, page_index, patterns)
-    results["File"] = pdf_file
-    all_results.append(results)
     save_pdf_cuts_as_images(pdf_file, page_index, cuts, output_folder)
     
     for i in range(len(cuts)):
         img_path = os.path.join(output_folder, f"{os.path.basename(pdf_file).replace('.pdf', '')}_cut_{i}.png")
         if os.path.exists(img_path):
-            image_results = extract_text_from_images(img_path, cuts)
-            results.update(image_results)
-
-for result in all_results:
-    print(f"\nResults for {result['File']}:")
-    print("=" * 50)
-    for key, value in result.items():
-        if key != "File":
-            if value:
-                print(f"\n{key}:")
-                print("-" * 30)
-                print(value)
-            else:
-                print(f"\n{key}: None")
-    print("=" * 50)
+            text_results = extract_text_from_images(img_path, cuts)
+            print(f"\nResults for {img_path}:")
+            print("=" * 50)
+            for key, value in text_results.items():
+                if value:
+                    print(f"\n{key}:")
+                    print("-" * 30)
+                    print(value)
+            print("=" * 50)
